@@ -1,5 +1,6 @@
 import requests
 from datetime import datetime
+from functools import lru_cache
 
 BASE_URL = "https://statsapi.mlb.com/api/v1"
 
@@ -61,6 +62,9 @@ def get_player_details(player_id: int):
     }
 
 
+get_player_details = lru_cache(maxsize=512)(get_player_details)
+
+
 def get_today_schedule():
     today = datetime.today().strftime("%Y-%m-%d")
 
@@ -84,6 +88,9 @@ def get_today_schedule():
     return data["dates"][0]["games"]
 
 
+get_today_schedule = lru_cache(maxsize=1)(get_today_schedule)
+
+
 def get_today_regular_season_games():
     """
     Returns today's regular season games only.
@@ -103,6 +110,9 @@ def get_live_game_feed(game_pk: int):
         return None
 
     return response.json()
+
+
+get_live_game_feed = lru_cache(maxsize=64)(get_live_game_feed)
 
 
 def _roster_contains_player(players_dict: dict, player_id: int):
@@ -239,6 +249,9 @@ def get_hitter_ops_splits(player_id: int):
     return {"vs_lhp": vs_lhp, "vs_rhp": vs_rhp}
 
 
+get_hitter_ops_splits = lru_cache(maxsize=512)(get_hitter_ops_splits)
+
+
 def get_pitcher_ops_allowed_splits(player_id: int):
     """
     Returns pitcher OPS allowed splits as:
@@ -267,3 +280,51 @@ def get_pitcher_ops_allowed_splits(player_id: int):
     )
 
     return {"vs_lhb": vs_lhb, "vs_rhb": vs_rhb}
+
+
+get_pitcher_ops_allowed_splits = lru_cache(maxsize=512)(get_pitcher_ops_allowed_splits)
+
+
+def get_season_stats(player_id: int, season: int):
+    """
+    Returns season hitting stats for avg/obp/slg/ops, or None when unavailable.
+    """
+    url = f"{BASE_URL}/people/{player_id}/stats"
+    params = {
+        "stats": "season",
+        "group": "hitting",
+        "season": season,
+    }
+    response = requests.get(url, params=params)
+
+    if response.status_code != 200:
+        return None
+
+    data = response.json()
+    stats = data.get("stats", [])
+    if not stats:
+        return None
+
+    splits = stats[0].get("splits", [])
+    if not splits:
+        return None
+
+    stat = splits[0].get("stat", {})
+
+    avg = _safe_float(stat.get("avg"))
+    obp = _safe_float(stat.get("obp"))
+    slg = _safe_float(stat.get("slg"))
+    ops = _safe_float(stat.get("ops"))
+
+    if avg is None or obp is None or slg is None or ops is None:
+        return None
+
+    return {
+        "avg": avg,
+        "obp": obp,
+        "slg": slg,
+        "ops": ops,
+    }
+
+
+get_season_stats = lru_cache(maxsize=1024)(get_season_stats)
